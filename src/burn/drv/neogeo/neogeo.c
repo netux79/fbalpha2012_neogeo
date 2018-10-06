@@ -248,8 +248,13 @@ void NeoDecodeSprites(UINT8* pDest, INT32 nSize)
       } else {
       dProgress = 1.0 /  8.0;
       }*/
+#ifdef GEKKO   
+      INT32 SpriteNum = BurnUseCache ? 4 : 8;
+#else
+      INT32 SpriteNum = 8;
+#endif
 
-   for (INT32 i = 0; i < 8; i++) {
+   for (INT32 i = 0; i < SpriteNum; i++) {
 
       UINT8* pStart = pDest + i * (nSize >> 3);
       UINT8* pEnd = pStart + (nSize >> 3);

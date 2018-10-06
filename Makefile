@@ -146,6 +146,7 @@ else ifeq ($(platform), ngc)
    EXTERNAL_ZLIB = 1
 	STATIC_LINKING = 1
 else ifeq ($(platform), wii)
+   include $(DEVKITPPC)/wii_rules
    TARGET := $(TARGET_NAME)_libretro_$(platform).a
    CC = $(DEVKITPPC)/bin/powerpc-eabi-gcc$(EXE_EXT)
    CXX = $(DEVKITPPC)/bin/powerpc-eabi-g++$(EXE_EXT)
@@ -153,6 +154,7 @@ else ifeq ($(platform), wii)
    ENDIANNESS_DEFINES =  -DMSB_FIRST
    PLATFORM_DEFINES := -DGEKKO -DHW_RVL -mrvl -mcpu=750 -meabi -mhard-float
    PLATFORM_DEFINES += -U__INT32_TYPE__ -U __UINT32_TYPE__ -D__INT32_TYPE__=int
+   CFLAGS += -I$(LIBOGC_INC)
    EXTERNAL_ZLIB = 1
    STATIC_LINKING = 1
 
@@ -370,7 +372,12 @@ FBA_CXXOBJ := $(FBA_CXXSRCS:.cpp=.o)
 FBA_CSRCS := $(filter-out $(BURN_BLACKLIST),$(foreach dir,$(FBA_SRC_DIRS),$(wildcard $(dir)/*.c)))
 FBA_COBJ := $(FBA_CSRCS:.c=.o)
 
-OBJS := $(FBA_COBJ) $(FBA_CXXOBJ)
+ifeq ($(platform), wii)
+FBA_SSRCS := $(filter-out $(BURN_BLACKLIST),$(foreach dir,$(FBA_SRC_DIRS),$(wildcard $(dir)/*.S)))
+FBA_SOBJ := $(FBA_SSRCS:.S=.o)
+endif
+
+OBJS := $(FBA_SOBJ) $(FBA_COBJ) $(FBA_CXXOBJ)
 
 FBA_DEFINES := -DUSE_SPEEDHACKS -D__LIBRETRO__ \
 	-D__LIBRETRO_OPTIMIZATIONS__ \
@@ -520,6 +527,12 @@ endif
 %.o: %.c
 	@echo "CC $<"
 	@$(CC) -c -o $@ $< $(CFLAGS) $(INCDIRS)
+
+ifeq ($(platform), wii)
+%.o: %.S
+	@echo "CS $<"
+	$(CC) -c -o $@ $< $(CFLAGS) $(INCDIRS)
+endif
 
 clean-objs:
 	rm -f $(OBJS)

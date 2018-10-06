@@ -70,7 +70,8 @@ void retro_set_environment(retro_environment_t cb)
 
    static const struct retro_variable vars[] = {
       { "fba-diagnostics", "Diagnostics; disabled|enabled" },
-      { "fba-unibios", "Neo Geo UniBIOS; disabled|enabled" },
+      // Use UniBios by default. Original Bios takes a long time to load(about 2 minutes), no idea why.
+      { "fba-unibios", "Neo Geo UniBIOS; enabled|disabled" },
       { "fba-cpu-speed-adjust", "CPU Speed Overclock; 100|110|120|130|140|150|160|170|180|190|200" },
       { NULL, NULL },
    };
@@ -296,6 +297,16 @@ static int32_t archive_load_rom(uint8_t *dest, int32_t *wrote, int32_t i)
    ZipClose();
    return 0;
 }
+#ifdef GEKKO
+/* Gets cache directory when using VM for large games. */
+int get_cache_path(char *path)
+{
+	const char *system_directory_c = NULL;
+	environ_cb(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY, &system_directory_c);
+
+	sprintf(path, "%s/cache/%s_cache/", system_directory_c, BurnDrvGetTextA(DRV_NAME));
+}
+#endif
 
 // This code is very confusing. The original code is even more confusing :(
 static bool open_archive(void)

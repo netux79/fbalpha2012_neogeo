@@ -1919,6 +1919,11 @@ unsigned retro_get_region(void);
 void *retro_get_memory_data(unsigned id);
 size_t retro_get_memory_size(unsigned id);
 
+#ifdef GEKKO
+/* Gets cache directory when using virtual memory. */
+int get_cache_path(char *path);
+#endif
+
 #ifdef __cplusplus
 }
 #endif

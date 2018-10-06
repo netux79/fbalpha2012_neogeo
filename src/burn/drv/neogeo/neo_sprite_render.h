@@ -611,7 +611,17 @@ static void FUNCTIONNAME(BPP,XZOOM,CLIP,OPACITY)()
 
                if (nTransparent == 0)
                {
+#ifdef GEKKO
+                  if(BurnUseCache)
+                  {
+                     // NeoSpriteROM fixed size is 2000000 (32MB) and contains 0x40000 tiles.
+                     // When tile is beyond 0x40000 use NeoSpriteROM_WIIVM instead.
+                     pTileData = (nTileNumber < 0x40000) ? (UINT32*) &NeoSpriteROM[nNeoActiveSlot][nTileNumber << 7] : (UINT32*) &NeoSpriteROM_WIIVM[nNeoActiveSlot][(nTileNumber - 0x40000)<< 7];
+                  }
+                  else
+#endif
                   pTileData = (UINT32*)(NeoSpriteROMActive + (nTileNumber << 7));
+
                   pTilePalette = &NeoPalette[(nTileAttrib & 0xFF00) >> 4];
                }
             }

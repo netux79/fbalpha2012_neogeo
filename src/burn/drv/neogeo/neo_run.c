@@ -64,6 +64,10 @@
 #include "burn_ym2610.h"
 #include "bitswap.h"
 #include "neocdlist.h"
+#ifdef GEKKO
+#include "libretro.h"
+#include "wii_vm.h"
+#endif
 
 // #undef USE_SPEEDHACKS
 
@@ -212,6 +216,11 @@ INT32 nNeoScreenWidth;
 UINT8 nLEDLatch, nLED[3];
 
 // ----------------------------------------------------------------------------
+#ifdef GEKKO
+char CacheDir[1024];
+char CacheName[1024];
+FILE *BurnCacheFile;
+#endif
 
 static bool bMemoryCardInserted, bMemoryCardWritable;
 
@@ -446,6 +455,80 @@ static INT32 FindROMs(UINT32 nType, INT32* pOffset, INT32* pNum)
 
 	return 0;
 }
+#ifdef GEKKO
+// Initialize Virtual Memory and cache system
+// The sprite cache file ('crom)' is read partly in RAM with a 32MB fixed size,
+// the remaining part is read in VM.
+static INT32 InitCache(void)
+{
+	// Use cache only when gfx roms are larger than 40 MB
+	if (nSpriteSize[nNeoActiveSlot] >= 40*MB)
+		BurnUseCache = true;
+	else
+		BurnUseCache = false;
+
+	if(BurnUseCache)
+	{
+		int SpriteRamSize = nSpriteSize[nNeoActiveSlot];
+		int SpriteVmSize = SpriteRamSize - 32*MB;
+
+		NeoSpriteROM[nNeoActiveSlot] = (UINT8*)BurnMalloc(32*MB);
+		NeoSpriteROM_WIIVM[nNeoActiveSlot] = (UINT8*)VM_Init(SpriteVmSize, ROMCACHE_SIZE);
+
+		get_cache_path(CacheDir);
+
+		if (NeoSpriteROM[nNeoActiveSlot] == NULL) {
+			return 1;
+		}
+
+		// Read Sprite data cache
+		sprintf(CacheName ,"%scrom", CacheDir);
+		BurnCacheFile = fopen(CacheName, "rb");
+		if (!BurnCacheFile)
+		{
+			printf("Error opening %s!\nConvert the game with romcnv.", CacheName);
+			exit(0);
+		}
+
+		// Load into RAM
+		fread(NeoSpriteROM[nNeoActiveSlot], 32*MB, 1, BurnCacheFile);
+		// Load into VM
+		fread(NeoSpriteROM_WIIVM[nNeoActiveSlot], SpriteVmSize, 1, BurnCacheFile);
+		fclose(BurnCacheFile);
+
+		// Read Text layer tiles cache
+		sprintf(CacheName, "%ssrom", CacheDir);
+		BurnCacheFile = fopen(CacheName, "rb");
+		if (!BurnCacheFile)
+		{
+			printf("Error opening %s!\nConvert the game with romcnv.", CacheName);
+			exit(0);
+		}
+		// Reading srom file...
+		fread(&nNeoTextROMSize[nNeoActiveSlot], sizeof(int), 1, BurnCacheFile);
+		NeoTextROM[nNeoActiveSlot] = (UINT8*)BurnMalloc(nNeoTextROMSize[nNeoActiveSlot]);
+		if (NeoTextROM[nNeoActiveSlot] == NULL) {
+			return 1;
+		}
+
+		fread(NeoTextROM[nNeoActiveSlot], nNeoTextROMSize[nNeoActiveSlot], 1, BurnCacheFile);
+		fclose(BurnCacheFile);
+	}
+	
+	return 0;
+}
+
+// Read Sound data cache
+static INT32 ReadSoundCache(UINT8* Audio)
+{
+	sprintf(CacheName ,"%svrom", CacheDir);
+	BurnCacheFile = fopen(CacheName, "rb");
+	if (!BurnCacheFile) printf("Error opening %s!\n", CacheName);
+
+	fread(Audio, nYM2610ADPCMASize[nNeoActiveSlot], 1, BurnCacheFile);
+	fclose(BurnCacheFile);
+}
+#endif
 
 static INT32 LoadRoms(void)
 {
@@ -594,56 +677,60 @@ static INT32 LoadRoms(void)
    //	if (nSpriteSize[nNeoActiveSlot] > 0x4000000) {
    //		nSpriteSize[nNeoActiveSlot] = 0x5000000;
    //	}
+#ifdef GEKKO
+	InitCache();
+	if(!BurnUseCache)
+#endif
+	{
+		 NeoSpriteROM[nNeoActiveSlot] = (UINT8*)BurnMalloc(nSpriteSize[nNeoActiveSlot] < (nNeoTileMask[nNeoActiveSlot] << 7) ? ((nNeoTileMask[nNeoActiveSlot] + 1) << 7) : nSpriteSize[nNeoActiveSlot]);
+		 if (NeoSpriteROM[nNeoActiveSlot] == NULL) {
+		    return 1;
+		 }
 
-   NeoSpriteROM[nNeoActiveSlot] = (UINT8*)BurnMalloc(nSpriteSize[nNeoActiveSlot] < (nNeoTileMask[nNeoActiveSlot] << 7) ? ((nNeoTileMask[nNeoActiveSlot] + 1) << 7) : nSpriteSize[nNeoActiveSlot]);
-   if (NeoSpriteROM[nNeoActiveSlot] == NULL) {
-      return 1;
-   }
+		 /*	if ((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_SNK_DEDICATED_PCB) {
+		    BurnSetProgressRange(1.0 / ((double)nSpriteSize[nNeoActiveSlot] / 0x800000 / 12));
+		    } else if (BurnDrvGetHardwareCode() & (HARDWARE_SNK_CMC42 | HARDWARE_SNK_CMC50)) {
+		    BurnSetProgressRange(1.0 / ((double)nSpriteSize[nNeoActiveSlot] / 0x800000 /  9));
+		    } else {
+		    BurnSetProgressRange(1.0 / ((double)nSpriteSize[nNeoActiveSlot] / 0x800000 /  3));
+		    }*/
 
-   /*	if ((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_SNK_DEDICATED_PCB) {
-      BurnSetProgressRange(1.0 / ((double)nSpriteSize[nNeoActiveSlot] / 0x800000 / 12));
-      } else if (BurnDrvGetHardwareCode() & (HARDWARE_SNK_CMC42 | HARDWARE_SNK_CMC50)) {
-      BurnSetProgressRange(1.0 / ((double)nSpriteSize[nNeoActiveSlot] / 0x800000 /  9));
-      } else {
-      BurnSetProgressRange(1.0 / ((double)nSpriteSize[nNeoActiveSlot] / 0x800000 /  3));
-      }*/
+		 if (BurnDrvGetHardwareCode() & (HARDWARE_SNK_CMC42 | HARDWARE_SNK_CMC50)) {
+		    double fRange = (double)pInfo->nSpriteNum / 4.0;
+		    if (fRange < 1.5) {
+		       fRange = 1.5;
+		    }
+		    BurnSetProgressRange(1.0 / fRange);
+		 } else {
+		    BurnSetProgressRange(1.0 / pInfo->nSpriteNum);
+		 }
 
-   if (BurnDrvGetHardwareCode() & (HARDWARE_SNK_CMC42 | HARDWARE_SNK_CMC50)) {
-      double fRange = (double)pInfo->nSpriteNum / 4.0;
-      if (fRange < 1.5) {
-         fRange = 1.5;
-      }
-      BurnSetProgressRange(1.0 / fRange);
-   } else {
-      BurnSetProgressRange(1.0 / pInfo->nSpriteNum);
-   }
+		 // Load sprite data
+		 NeoLoadSprites(pInfo->nSpriteOffset, pInfo->nSpriteNum, NeoSpriteROM[nNeoActiveSlot], nSpriteSize[nNeoActiveSlot]);
 
-   // Load sprite data
-   NeoLoadSprites(pInfo->nSpriteOffset, pInfo->nSpriteNum, NeoSpriteROM[nNeoActiveSlot], nSpriteSize[nNeoActiveSlot]);
+		 NeoTextROM[nNeoActiveSlot] = (UINT8*)BurnMalloc(nNeoTextROMSize[nNeoActiveSlot]);
+		 if (NeoTextROM[nNeoActiveSlot] == NULL) {
+		    return 1;
+		 }
 
-   NeoTextROM[nNeoActiveSlot] = (UINT8*)BurnMalloc(nNeoTextROMSize[nNeoActiveSlot]);
-   if (NeoTextROM[nNeoActiveSlot] == NULL) {
-      return 1;
-   }
+		 // Load Text layer tiledata
+		 {
+		    if (pInfo->nTextOffset != -1) {
+		       // Load S ROM data
+		       BurnLoadRom(NeoTextROM[nNeoActiveSlot], pInfo->nTextOffset, 1);
+		    } else {
+		       // Extract data from the end of C ROMS
+		       BurnUpdateProgress(0.0, _T("Decrypting text layer graphics...")/*, BST_DECRYPT_TXT*/, 0);
+		       NeoCMCExtractSData(NeoSpriteROM[nNeoActiveSlot], NeoTextROM[nNeoActiveSlot], nSpriteSize[nNeoActiveSlot], nNeoTextROMSize[nNeoActiveSlot]);
 
-   // Load Text layer tiledata
-   {
-      if (pInfo->nTextOffset != -1) {
-         // Load S ROM data
-         BurnLoadRom(NeoTextROM[nNeoActiveSlot], pInfo->nTextOffset, 1);
-      } else {
-         // Extract data from the end of C ROMS
-         BurnUpdateProgress(0.0, _T("Decrypting text layer graphics...")/*, BST_DECRYPT_TXT*/, 0);
-         NeoCMCExtractSData(NeoSpriteROM[nNeoActiveSlot], NeoTextROM[nNeoActiveSlot], nSpriteSize[nNeoActiveSlot], nNeoTextROMSize[nNeoActiveSlot]);
-
-         if ((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_SNK_DEDICATED_PCB) {
-            for (INT32 i = 0; i < nNeoTextROMSize[nNeoActiveSlot]; i++) {
-               NeoTextROM[nNeoActiveSlot][i] = BITSWAP08(NeoTextROM[nNeoActiveSlot][i] ^ 0xd2, 4, 0, 7, 2, 5, 1, 6, 3);
-            }
-         }
-      }
-   }
-
+		       if ((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_SNK_DEDICATED_PCB) {
+		          for (INT32 i = 0; i < nNeoTextROMSize[nNeoActiveSlot]; i++) {
+		             NeoTextROM[nNeoActiveSlot][i] = BITSWAP08(NeoTextROM[nNeoActiveSlot][i] ^ 0xd2, 4, 0, 7, 2, 5, 1, 6, 3);
+		          }
+		       }
+		    }
+		 }
+	}
    Neo68KROM[nNeoActiveSlot] = (UINT8*)BurnMalloc(nCodeSize[nNeoActiveSlot]);	// 68K cartridge ROM
    if (Neo68KROM[nNeoActiveSlot] == NULL) {
       return 1;
@@ -674,12 +761,17 @@ static INT32 LoadRoms(void)
       NeoCallbackActive->pInitialise();
    }
 
-   // Decode text data
-   BurnUpdateProgress(0.0, _T("Preprocessing text layer graphics...")/*, BST_PROCESS_TXT*/, 0);
-   NeoDecodeText(0, nNeoTextROMSize[nNeoActiveSlot], NeoTextROM[nNeoActiveSlot], NeoTextROM[nNeoActiveSlot]);
+#ifdef GEKKO
+   if(!BurnUseCache)
+#endif
+   {
+      // Decode text data
+      BurnUpdateProgress(0.0, _T("Preprocessing text layer graphics...")/*, BST_PROCESS_TXT*/, 0);
+      NeoDecodeText(0, nNeoTextROMSize[nNeoActiveSlot], NeoTextROM[nNeoActiveSlot], NeoTextROM[nNeoActiveSlot]);
 
-   // Decode sprite data
-   NeoDecodeSprites(NeoSpriteROM[nNeoActiveSlot], nSpriteSize[nNeoActiveSlot]);
+      // Decode sprite data
+      NeoDecodeSprites(NeoSpriteROM[nNeoActiveSlot], nSpriteSize[nNeoActiveSlot]);
+   }
 
    if (pInfo->nADPCMANum) {
       char* pName;
@@ -707,7 +799,9 @@ static INT32 LoadRoms(void)
       if (!strcmp(BurnDrvGetTextA(DRV_NAME), "pbobblenb")) {
          pADPCMData = YM2610ADPCMAROM[nNeoActiveSlot] + 0x200000;
       }
-
+#ifdef GEKKO
+   if(!BurnUseCache)
+#endif
       NeoLoadADPCM(pInfo->nADPCMOffset, pInfo->nADPCMANum, pADPCMData);
 
       if (BurnDrvGetHardwareCode() & HARDWARE_SNK_SWAPV) {
@@ -724,9 +818,21 @@ static INT32 LoadRoms(void)
       if (YM2610ADPCMBROM[nNeoActiveSlot] == NULL) {
          return 1;
       }
-
+#ifdef GEKKO
+      if(BurnUseCache)
+      {
+         ReadSoundCache(YM2610ADPCMBROM[nNeoActiveSlot]);
+      }
+      else
+#endif
       NeoLoadADPCM(pInfo->nADPCMOffset + pInfo->nADPCMANum, pInfo->nADPCMBNum, YM2610ADPCMBROM[nNeoActiveSlot]);
    } else {
+#ifdef GEKKO
+      if(BurnUseCache)
+      {
+         ReadSoundCache(YM2610ADPCMAROM[nNeoActiveSlot]);
+      }
+#endif
       YM2610ADPCMBROM[nNeoActiveSlot] = YM2610ADPCMAROM[nNeoActiveSlot];
       nYM2610ADPCMBSize[nNeoActiveSlot] = nYM2610ADPCMASize[nNeoActiveSlot];
    }
@@ -4145,7 +4251,14 @@ INT32 NeoExit(void)
 			BurnFree(YM2610ADPCMBROM[nNeoActiveSlot]);
 		}
 	}
-	
+#ifdef GEKKO
+	if(BurnUseCache)
+	{
+		NeoSpriteROM_WIIVM[nNeoActiveSlot] = NULL;
+		VM_InvalidateAll();
+		VM_Deinit();
+	}
+#endif
 	if (nNeoSystemType & NEO_SYS_CD)
    {
 		NeoExitSprites(0);
